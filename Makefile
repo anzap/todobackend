@@ -10,10 +10,17 @@ CHECK := @bash -c '\
 	if [[ $(INSPECT) -ne "0" ]]; \
 	then exit $(INSPECT); fi' VALUE
 
-.PHONY: test build release clean
+.PHONY: test build release clean tag buildtag
 
 REL_PROJECT := $(PROJECT_NAME)$(BUILD_ID)
 DEV_PROJECT := $(REL_PROJECT)dev
+DOCKER_REGISTRY := docker.io
+APP_SERVICE_NAME := app
+
+BUILD_TAG_EXPRESSION ?= date -u +%Y%m%d%H%M%S
+BUILD_EXPRESSION := $(shell $(BUILD_TAG_EXPRESSION))
+BUILD_TAG ?= $(BUILD_EXPRESSION)
+
 
 test:
 	${INFO} "Pulling latest images..."
@@ -68,6 +75,16 @@ clean:
 	@ docker images -q -f dangling=true -f label=application=$(REPO_NAME) | xargs -I ARGS docker rmi -f ARGS
 	${INFO} "Clean complete"
 
+tag:
+	${INFO} "Tagging release image with tags $(TAG_ARGS)..."
+	@ $(foreach tag,$(TAG_ARGS), docker tag $(IMAGE_ID) $(DOCKER_REGISTRY)/$(ORG_NAME)/$(REPO_NAME):$(tag);)
+	${INFO} "Tagging completed"
+
+buildtag:
+	${INFO} "Tagging release image with suffix $(BUILD_TAG) and build tags $(BUILDTAG_ARGS)..."
+	@ $(foreach tag,$(BUILDTAG_ARGS), docker tag $(IMAGE_ID) $(DOCKER_REGISTRY)/$(ORG_NAME)/$(REPO_NAME):$(tag).$(BUILD_TAG);)
+	${INFO} "Tagging completed"
+
 YELLOW := "\e[1;33m"
 NC := "\e[0m"
 
@@ -75,3 +92,25 @@ INFO := @bash -c '\
 	printf $(YELLOW); \
 	echo "=> $$1"; \
 	printf $(NC)' VALUE
+
+APP_CONTAINER_ID := $$(docker-compose -p $(REL_PROJECT) -f $(REL_COMPOSE_FILE) ps -q $(APP_SERVICE_NAME))
+
+IMAGE_ID := $$(docker inspect -f '{{.Image}}' $(APP_CONTAINER_ID))
+
+# Extract tag params
+ifeq (tag,$(firstword $(MAKECMDGOALS)))
+TAG_ARGS := $(wordlist 2, $(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+ifeq ($(TAG_ARGS),)
+$(error You must specify a tag)
+endif
+$(eval $(TAG_ARGS):;@:)
+endif
+
+#Extract build tag params
+ifeq (buildtag,$(firstword $(MAKECMDGOALS)))
+BUILDTAG_ARGS := $(wordlist 2, $(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+ifeq ($(BUILDTAG_ARGS),)
+$(error You must specify a tag)
+endif
+$(eval $(BUILDTAG_ARGS):;@:)
+endif
