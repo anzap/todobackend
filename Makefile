@@ -15,6 +15,7 @@ CHECK := @bash -c '\
 REL_PROJECT := $(PROJECT_NAME)$(BUILD_ID)
 DEV_PROJECT := $(REL_PROJECT)dev
 DOCKER_REGISTRY := docker.io
+DOCKER_REGISTRY_AUTH ?=
 APP_SERVICE_NAME := app
 
 BUILD_TAG_EXPRESSION ?= date -u +%Y%m%d%H%M%S
@@ -85,6 +86,21 @@ buildtag:
 	@ $(foreach tag,$(BUILDTAG_ARGS), docker tag $(IMAGE_ID) $(DOCKER_REGISTRY)/$(ORG_NAME)/$(REPO_NAME):$(tag).$(BUILD_TAG);)
 	${INFO} "Tagging completed"
 
+login:
+	${INFO} "Logging in to Docker registry $$DOCKER_REGISTRY..."
+	@ docker login -u $$DOCKER_USER -p $$DOCKER_PASSWORD -e $$DOCKER_EMAIL $(DOCKER_REGISTRY_AUTH)
+	${INFO} "Logged in to Docker registry $$DOCKER_REGISTRY..."
+
+logout:
+	${INFO} "Logging out of Docker registry $$DOCKER_REGISTRY..."
+	@ docker logout
+	${INFO} "Logged out of Docker registry $$DOCKER_REGISTRY..."
+
+publish:
+	${INFO} "Publishing release image $(IMAGE_ID) to $(DOCKER_REGISTRY)/$(ORG_NAME)/$(REPO_NAME)..."
+	@ $(foreach tag,$(shell echo $(REPO_EXPR)), docker push $(tag);)
+	${INFO} "Publish complete"
+
 YELLOW := "\e[1;33m"
 NC := "\e[0m"
 
@@ -96,6 +112,14 @@ INFO := @bash -c '\
 APP_CONTAINER_ID := $$(docker-compose -p $(REL_PROJECT) -f $(REL_COMPOSE_FILE) ps -q $(APP_SERVICE_NAME))
 
 IMAGE_ID := $$(docker inspect -f '{{.Image}}' $(APP_CONTAINER_ID))
+
+ifeq ($(DOCKER_REGISTRY), docker.io)
+  REPO_FILTER := $(ORG_NAME)/$(REPO_NAME)[^[:space:]|\$$]*
+else
+  REPO_FILTER := $(DOCKER_REGISTRY)/$(ORG_NAME)/$(REPO_NAME)[]^[:space:]|\$$]*
+endif
+
+REPO_EXPR := $$(docker inspect -f '{{range .RepoTags}}{{.}} {{end}}' $(IMAGE_ID) | grep -oh "$(REPO_FILTER)" | xargs)
 
 # Extract tag params
 ifeq (tag,$(firstword $(MAKECMDGOALS)))
